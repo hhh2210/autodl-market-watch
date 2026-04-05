@@ -1,0 +1,17 @@
+{
+  "name": "autodl-market-watch",
+  "version": "0.2.0",
+  "private": true,
+  "description": "CLI tool to monitor GPU availability on AutoDL marketplace via browser-use.",
+  "bin": {
+    "autodl-market-watch": "./bin/autodl-market-watch.js"
+  },
+  "scripts": {
+    "start": "node ./bin/autodl-market-watch.js --gpu 'RTX PRO 6000,H800'",
+    "watch": "node ./bin/autodl-market-watch.js --gpu 'RTX PRO 6000,H800' --watch 15",
+    "help": "node ./bin/autodl-market-watch.js --help"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
