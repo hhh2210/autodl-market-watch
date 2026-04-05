@@ -2,7 +2,7 @@
   "name": "autodl-market-watch",
   "version": "0.2.0",
   "private": true,
-  "description": "CLI tool to monitor GPU availability on AutoDL marketplace via browser-use.",
+  "description": "CLI tool to monitor GPU availability on AutoDL marketplace via browser-use or agent-browser.",
   "bin": {
     "autodl-market-watch": "./bin/autodl-market-watch.js"
   },
