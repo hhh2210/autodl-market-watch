@@ -295,21 +295,29 @@ function buildFetchScript(minGb, counts, gpuFilter) {
   const counts = ${JSON.stringify(counts)};
   const minBytes = ${minBytes};
   const gpuFilter = ${JSON.stringify(gpuFilter)};
+  const token = localStorage.getItem('token') || '';
+  const appVer = (function() {
+    try { return JSON.parse(localStorage.getItem('app_version') || '{}').version || ''; }
+    catch(e) { return ''; }
+  })();
+
+  if (!token) {
+    if (location.href.includes('/login')) {
+      return JSON.stringify({ error: 'LOGIN_REQUIRED', location: location.href });
+    }
+    return JSON.stringify({ error: 'LOGIN_REQUIRED', location: location.href, detail: 'localStorage 中无 token' });
+  }
+
   const request = (method, path, body) => {
     const xhr = new XMLHttpRequest();
     xhr.open(method, path, false);
     xhr.withCredentials = true;
-    xhr.setRequestHeader('content-type', 'application/json');
+    xhr.setRequestHeader('Content-Type', 'application/json;charset=utf-8');
+    xhr.setRequestHeader('Authorization', token);
+    if (appVer) xhr.setRequestHeader('AppVersion', appVer);
     xhr.send(body ? JSON.stringify(body) : null);
     return JSON.parse(xhr.responseText || '{}');
   };
-
-  if (location.href.includes('/login')) {
-    return JSON.stringify({
-      error: 'LOGIN_REQUIRED',
-      location: location.href,
-    });
-  }
 
   const gpuResp = request('GET', '/api/v1/machine/gpu_type');
 
@@ -350,7 +358,30 @@ function buildFetchScript(minGb, counts, gpuFilter) {
         gpu_type_name: gpuNames,
         gpu_idle_num: count,
       });
-    responses.push({ count, resp });
+    if (resp.code === 'AuthorizeFailed' || resp.code === 'AuthFailed') {
+      return JSON.stringify({
+        error: 'LOGIN_REQUIRED',
+        location: location.href,
+        detail: resp.msg || resp.message || 'API 认证失败',
+      });
+    }
+    var items = (resp.data && resp.data.list) || [];
+    var slim = items.map(function(m) {
+      return {
+        machine_id: m.machine_id,
+        region_name: m.region_name,
+        region_sign: m.region_sign,
+        gpu_name: m.gpu_name,
+        gpu_number: m.gpu_number,
+        gpu_memory: m.gpu_memory,
+        gpu_idle_num: m.gpu_idle_num,
+        payg_price: m.payg_price,
+        cpu_name: m.machine_base_info ? m.machine_base_info.cpu_name : '',
+        machine_tag_info: m.machine_tag_info,
+        machine_alias: m.machine_alias,
+      };
+    });
+    responses.push({ count, code: resp.code, list: slim });
   }
 
   return JSON.stringify({
@@ -380,8 +411,9 @@ function printTable(rows) {
 
 function summarizeError(data) {
   if (data.error === "LOGIN_REQUIRED") {
+    const detail = data.detail ? `（${data.detail}）` : "";
     return [
-      "当前 Chrome profile 还没登录 AutoDL。",
+      `当前 Chrome profile 未登录或登录已过期${detail}。`,
       "先执行一次:",
       `  browser-use --profile ${cli.profile} open ${MARKET_URL}`,
       "然后在弹出的真实 Chrome 页面里登录，再重新运行脚本。",
@@ -408,8 +440,8 @@ async function fetchSnapshot() {
 
   const rows = [];
   for (const entry of data.responses || []) {
-    if (!entry.resp || entry.resp.code !== "Success") continue;
-    const items = extractItems(entry.resp.data);
+    if (entry.code !== "Success") continue;
+    const items = entry.list || [];
     for (const item of items) {
       rows.push(normalizeRow(item, entry.count));
     }
