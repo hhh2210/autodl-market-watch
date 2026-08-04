@@ -6,10 +6,24 @@ const {
   cardCounts,
   buildFetchScript,
 } = require("../lib/api-script.js");
-const { normalizeRow, dedupeRows } = require("../lib/normalize.js");
+const {
+  normalizeRow,
+  dedupeRows,
+  filterRows,
+} = require("../lib/normalize.js");
 const { printHelp, printTable, summarizeError } = require("../lib/output.js");
 
 const DEFAULT_PROFILE = "Default";
+const VALUE_OPTIONS = new Set([
+  "--profile",
+  "--backend",
+  "--gpu",
+  "--min-gb",
+  "--min-cards",
+  "--region",
+  "--max-price",
+  "--watch",
+]);
 
 function parseArgs(argv) {
   const args = {
@@ -17,6 +31,8 @@ function parseArgs(argv) {
     backend: "",
     minGb: 80,
     minCards: 4,
+    regions: [],
+    maxPrice: null,
     gpuFilter: [],
     watchSec: 0,
     json: false,
@@ -26,6 +42,9 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = argv[i + 1];
+    if (VALUE_OPTIONS.has(arg) && (!next || next.startsWith("--"))) {
+      throw new Error(`${arg} 缺少参数`);
+    }
 
     if (arg === "--profile" && next) {
       args.profile = next;
@@ -45,6 +64,18 @@ function parseArgs(argv) {
     } else if (arg === "--min-cards" && next) {
       args.minCards = Number(next);
       i += 1;
+    } else if (arg === "--region" && next) {
+      args.regions = next
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (args.regions.length === 0) {
+        throw new Error("--region 至少需要一个非空地区");
+      }
+      i += 1;
+    } else if (arg === "--max-price" && next) {
+      args.maxPrice = Number(next);
+      i += 1;
     } else if (arg === "--watch" && next) {
       args.watchSec = Number(next);
       i += 1;
@@ -56,6 +87,30 @@ function parseArgs(argv) {
       printHelp();
       process.exit(0);
     }
+  }
+
+  for (const [name, value] of [
+    ["--min-gb", args.minGb],
+    ["--min-cards", args.minCards],
+    ["--watch", args.watchSec],
+  ]) {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(`${name} 必须是非负数字`);
+    }
+  }
+  if (
+    args.maxPrice !== null &&
+    (!Number.isFinite(args.maxPrice) || args.maxPrice < 0)
+  ) {
+    throw new Error("--max-price 必须是非负数字");
+  }
+  if (
+    !Number.isInteger(args.minCards) ||
+    args.minCards < 1 ||
+    args.minCards > 12 ||
+    cardCounts(args.minCards).length === 0
+  ) {
+    throw new Error("--min-cards 必须是 1 到 12 之间受支持的整数");
   }
 
   return args;
@@ -108,11 +163,11 @@ async function fetchSnapshot(backend, opts) {
   backend.openUrl(MARKET_URL);
   await sleep(2500);
 
-  const script = buildFetchScript(
-    opts.minGb,
-    cardCounts(opts.minCards),
-    opts.gpuFilter,
-  );
+  const counts = cardCounts(opts.minCards);
+  if (counts.length === 0) {
+    throw new Error("没有与 --min-cards 对应的受支持卡数");
+  }
+  const script = buildFetchScript(opts.minGb, counts, opts.gpuFilter);
   const raw = backend.evalPage(script);
   const data = JSON.parse(raw);
 
@@ -134,12 +189,18 @@ async function fetchSnapshot(backend, opts) {
     return Number(a.pricePerHour || 999999) - Number(b.pricePerHour || 999999);
   });
 
+  const uniqueRows = dedupeRows(rows);
+  const filteredRows = filterRows(uniqueRows, {
+    regions: opts.regions,
+    maxPrice: opts.maxPrice,
+  });
   return {
     fetchedAt: data.now,
     location: data.location,
     gpuNames: data.gpuNames,
-    total: rows.length,
-    rows: dedupeRows(rows),
+    scannedTotal: uniqueRows.length,
+    total: filteredRows.length,
+    rows: filteredRows,
   };
 }
 
@@ -191,7 +252,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { parseArgs, fetchSnapshot, runOnce, makeSessionName };

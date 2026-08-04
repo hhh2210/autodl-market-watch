@@ -52,6 +52,9 @@ node bin/autodl-market-watch.js --gpu "RTX PRO 6000,H800"
 
 # Only H800, at least 8 idle cards, poll every 30 seconds
 node bin/autodl-market-watch.js --gpu "H800" --min-cards 8 --watch 30
+
+# All matching inventory in 西北B or 华南, no more than 10 yuan/card/hour
+node bin/autodl-market-watch.js --gpu "H800" --region "西北B,华南" --max-price 10
 ```
 
 `--gpu` uses case-insensitive substring matching against AutoDL's GPU type list. If no match is found, it prints all available GPU names for reference.
@@ -70,6 +73,8 @@ node bin/autodl-market-watch.js --min-gb 80
 --backend <name>    Browser backend: agent-browser or browser-use (auto-detected)
 --min-gb <n>        Minimum VRAM in GB (only when --gpu is not set). Default: 80
 --min-cards <n>     Minimum idle card count. Default: 4
+--region <names>    Region name/sign filters (comma-separated, fuzzy match)
+--max-price <yuan>  Maximum price per card-hour in CNY
 --watch <sec>       Poll every N seconds
 --profile <name>    Chrome profile name. Default: "Default"
 --json              Output raw JSON
@@ -122,6 +127,11 @@ lib/backends/agent-browser.js   agent-browser CLI adapter
 ```
 
 ## GPU filtering details
+
+Inventory search follows every API page (up to a fail-closed safety cap) before
+deduplication and local region/price filtering. If the endpoint repeats a page
+or exceeds the cap, the command errors instead of silently reporting a partial
+market snapshot.
 
 When using `--min-gb`, the script queries AutoDL's `/api/v1/machine/gpu_type` endpoint, which returns `gpu_memory` in **bytes**. For example:
 
